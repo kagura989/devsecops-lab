@@ -1,53 +1,52 @@
-name: DevSecOps CI/CD
+name: CI/CD Pipeline
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
-  devsecops:
-    name: CI/CD with Security Scans
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: tfsec - Scan Terraform code
-        uses: aquasecurity/tfsec-action@v1.0.0
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
         with:
-          working_directory: ./terraform
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Trivy - Scan Docker image
-        uses: aquasecurity/trivy-action@master
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
-          image-ref: 'yourdockerhubusername/your-image-name:latest'
-          format: 'table'
-          exit-code: '0'
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/devsecops:latest
 
-      - name: Build Docker image
-        run: docker build -t yourdockerhubusername/your-image-name:latest .
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v1.29.0
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v3
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1
+          region: ap-south-1
 
-      - name: Push Docker image to Docker Hub
-        run: |
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-          docker push yourdockerhubusername/your-image-name:latest
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name devsecops-cluster --region ap-south-1
 
-      - name: Apply Kubernetes Manifests
+      - name: Deploy to Kubernetes
         run: |
           kubectl apply -f k8s/
 
-      - name: Apply Sealed Secret
+      - name: Apply Sealed Secrets
         run: |
           kubectl apply -f sealed-secret.yaml
