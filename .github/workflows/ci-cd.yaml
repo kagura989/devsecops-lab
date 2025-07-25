@@ -1,1 +1,53 @@
+name: DevSecOps CI/CD
 
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  devsecops:
+    name: CI/CD with Security Scans
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: tfsec - Scan Terraform code
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: ./terraform
+
+      - name: Trivy - Scan Docker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'yourdockerhubusername/your-image-name:latest'
+          format: 'table'
+          exit-code: '0'
+
+      - name: Build Docker image
+        run: docker build -t yourdockerhubusername/your-image-name:latest .
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          docker push yourdockerhubusername/your-image-name:latest
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/
+
+      - name: Apply Sealed Secret
+        run: |
+          kubectl apply -f sealed-secret.yaml
